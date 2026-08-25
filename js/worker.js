@@ -955,8 +955,8 @@ function renderMathChildren(node) {
 }
 
 /**
- * Renders one Office Math element. Property nodes are intentionally omitted: they
- * describe layout metadata rather than visible formula content.
+ * Renders one Office Math element, preserving script and limit placement where
+ * OOXML supplies it. Property nodes are omitted because they only describe layout.
  */
 function renderMathNode(name, node) {
     var base;
@@ -977,6 +977,11 @@ function renderMathNode(name, node) {
             return "<msub>" + renderMathChild(node, "m:e") + renderMathChild(node, "m:sub") + "</msub>";
         case "m:sSubSup":
             return "<msubsup>" + renderMathChild(node, "m:e") + renderMathChild(node, "m:sub") + renderMathChild(node, "m:sup") + "</msubsup>";
+        case "m:sPre":
+            base = renderMathChild(node, "m:e");
+            sub = renderMathChild(node, "m:sub") || "<none/>";
+            sup = renderMathChild(node, "m:sup") || "<none/>";
+            return "<mmultiscripts>" + base + "<mprescripts/>" + sub + sup + "</mmultiscripts>";
         case "m:rad":
             base = renderMathChild(node, "m:e");
             sup = renderMathChild(node, "m:deg");
@@ -989,7 +994,11 @@ function renderMathNode(name, node) {
             base = "<mo>" + escapeHtml(getTextByPathList(node, ["m:naryPr", "m:chr", "attrs", "m:val"]) || "∑") + "</mo>";
             sub = renderMathChild(node, "m:sub");
             sup = renderMathChild(node, "m:sup");
-            if (sub && sup) { base = "<munderover>" + base + sub + sup + "</munderover>"; }
+            if (getTextByPathList(node, ["m:naryPr", "m:limLoc", "attrs", "m:val"]) === "subSup") {
+                if (sub && sup) { base = "<msubsup>" + base + sub + sup + "</msubsup>"; }
+                else if (sub) { base = "<msub>" + base + sub + "</msub>"; }
+                else if (sup) { base = "<msup>" + base + sup + "</msup>"; }
+            } else if (sub && sup) { base = "<munderover>" + base + sub + sup + "</munderover>"; }
             else if (sub) { base = "<munder>" + base + sub + "</munder>"; }
             else if (sup) { base = "<mover>" + base + sup + "</mover>"; }
             return "<mrow>" + base + renderMathChild(node, "m:e") + "</mrow>";
@@ -998,8 +1007,11 @@ function renderMathNode(name, node) {
         case "m:limUpp":
             return "<mover>" + renderMathChild(node, "m:e") + renderMathChild(node, "m:lim") + "</mover>";
         case "m:acc":
-        case "m:groupChr":
             return "<mover>" + renderMathChild(node, "m:e") + "<mo>" + escapeHtml(getMathPropertyChar(node, name, "ˆ")) + "</mo></mover>";
+        case "m:groupChr":
+            base = renderMathChild(node, "m:e");
+            var groupCharacter = "<mo>" + escapeHtml(getMathPropertyChar(node, name, "⏟")) + "</mo>";
+            return getTextByPathList(node, ["m:groupChrPr", "m:pos", "attrs", "m:val"]) === "top" ? "<mover>" + base + groupCharacter + "</mover>" : "<munder>" + base + groupCharacter + "</munder>";
         case "m:bar":
             base = renderMathChild(node, "m:e");
             var bar = "<mo>¯</mo>";
