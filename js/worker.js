@@ -853,45 +853,206 @@ function genTextBody(textBodyNode, slideLayoutSpNode, slideMasterSpNode, type, w
         // multi p
         for (var i=0; i<textBodyNode["a:p"].length; i++) {
             var pNode = textBodyNode["a:p"][i];
-            var rNode = pNode["a:r"];
             text += "<div class='" + getHorizontalAlign(pNode, slideLayoutSpNode, slideMasterSpNode, type, slideMasterTextStyles) + "'>";
             text += genBuChar(pNode);
-            if (rNode === undefined) {
-                // without r
-                text += genSpanElement(pNode, slideLayoutSpNode, slideMasterSpNode, type, warpObj);
-            } else if (rNode.constructor === Array) {
-                // with multi r
-                for (var j=0; j<rNode.length; j++) {
-                    text += genSpanElement(rNode[j], slideLayoutSpNode, slideMasterSpNode, type, warpObj);
-                }
-            } else {
-                // with one r
-                text += genSpanElement(rNode, slideLayoutSpNode, slideMasterSpNode, type, warpObj);
-            }
+            text += genParagraphContent(pNode, slideLayoutSpNode, slideMasterSpNode, type, warpObj);
             text += "</div>";
         }
     } else {
         // one p
         var pNode = textBodyNode["a:p"];
-        var rNode = pNode["a:r"];
         text += "<div class='" + getHorizontalAlign(pNode, slideLayoutSpNode, slideMasterSpNode, type, slideMasterTextStyles) + "'>";
         text += genBuChar(pNode);
-        if (rNode === undefined) {
-            // without r
-            text += genSpanElement(pNode, slideLayoutSpNode, slideMasterSpNode, type, warpObj);
-        } else if (rNode.constructor === Array) {
-            // with multi r
-            for (var j=0; j<rNode.length; j++) {
-                text += genSpanElement(rNode[j], slideLayoutSpNode, slideMasterSpNode, type, warpObj);
-            }
-        } else {
-            // with one r
-            text += genSpanElement(rNode, slideLayoutSpNode, slideMasterSpNode, type, warpObj);
-        }
+        text += genParagraphContent(pNode, slideLayoutSpNode, slideMasterSpNode, type, warpObj);
         text += "</div>";
     }
     
     return text;
+}
+
+/**
+ * Renders paragraph children in their original OOXML order, including Office Math
+ * objects that may be interleaved with normal text runs.
+ */
+function genParagraphContent(pNode, slideLayoutSpNode, slideMasterSpNode, type, warpObj) {
+    var content = "";
+    var children = getOrderedChildNodes(pNode);
+
+    for (var i = 0; i < children.length; i++) {
+        var child = children[i];
+        switch (child.name) {
+            case "a:r":
+            case "a:fld":
+                content += genSpanElement(child.node, slideLayoutSpNode, slideMasterSpNode, type, warpObj);
+                break;
+            case "a:br":
+                content += "<br>";
+                break;
+            case "m:oMath":
+                content += genMathElement(child.node, false);
+                break;
+            case "m:oMathPara":
+                content += genMathElement(child.node, true);
+                break;
+            default:
+        }
+    }
+
+    return content;
+}
+
+/**
+ * Converts an Office Math node into native MathML so formulas remain available in
+ * the preview as well as HTML and Reveal.js exports without an external service.
+ */
+function genMathElement(node, isDisplay) {
+    var body = renderMathChildren(node);
+    var display = isDisplay ? " display='block'" : "";
+    return "<math xmlns='http://www.w3.org/1998/Math/MathML' class='pptx-math'" + display + ">" + body + "</math>";
+}
+
+/**
+ * Returns element children in document order using the parser's monotonically
+ * increasing `attrs.order` marker, which preserves mixed text/formula content.
+ */
+function getOrderedChildNodes(node) {
+    var children = [];
+    if (node === undefined || node === null || typeof node !== "object") {
+        return children;
+    }
+
+    for (var name in node) {
+        if (name === "attrs") {
+            continue;
+        }
+        var values = node[name].constructor === Array ? node[name] : [node[name]];
+        for (var i = 0; i < values.length; i++) {
+            if (values[i] !== undefined && values[i] !== null) {
+                children.push({
+                    "name": name,
+                    "node": values[i],
+                    "order": typeof values[i] === "object" && values[i]["attrs"] !== undefined ? values[i]["attrs"]["order"] : Number.MAX_VALUE
+                });
+            }
+        }
+    }
+
+    children.sort(function(a, b) { return a.order - b.order; });
+    return children;
+}
+
+/**
+ * Recursively maps the commonly used Office Math constructs to MathML and keeps
+ * unknown constructs readable by rendering their non-property child elements.
+ */
+function renderMathChildren(node) {
+    var result = "";
+    var children = getOrderedChildNodes(node);
+    for (var i = 0; i < children.length; i++) {
+        result += renderMathNode(children[i].name, children[i].node);
+    }
+    return result;
+}
+
+/**
+ * Renders one Office Math element. Property nodes are intentionally omitted: they
+ * describe layout metadata rather than visible formula content.
+ */
+function renderMathNode(name, node) {
+    var base;
+    var sub;
+    var sup;
+    var delimiter;
+
+    switch (name) {
+        case "m:r":
+            return "<mrow>" + renderMathChildren(node) + "</mrow>";
+        case "m:t":
+            return "<mi>" + escapeHtml(typeof node === "string" ? node : "") + "</mi>";
+        case "m:f":
+            return "<mfrac>" + renderMathChild(node, "m:num") + renderMathChild(node, "m:den") + "</mfrac>";
+        case "m:sSup":
+            return "<msup>" + renderMathChild(node, "m:e") + renderMathChild(node, "m:sup") + "</msup>";
+        case "m:sSub":
+            return "<msub>" + renderMathChild(node, "m:e") + renderMathChild(node, "m:sub") + "</msub>";
+        case "m:sSubSup":
+            return "<msubsup>" + renderMathChild(node, "m:e") + renderMathChild(node, "m:sub") + renderMathChild(node, "m:sup") + "</msubsup>";
+        case "m:rad":
+            base = renderMathChild(node, "m:e");
+            sup = renderMathChild(node, "m:deg");
+            return sup ? "<mroot>" + base + sup + "</mroot>" : "<msqrt>" + base + "</msqrt>";
+        case "m:d":
+            delimiter = getTextByPathList(node, ["m:dPr", "m:begChr", "attrs", "m:val"]) || "(";
+            var closeDelimiter = getTextByPathList(node, ["m:dPr", "m:endChr", "attrs", "m:val"]) || ")";
+            return "<mrow><mo>" + escapeHtml(delimiter) + "</mo>" + renderMathChild(node, "m:e") + "<mo>" + escapeHtml(closeDelimiter) + "</mo></mrow>";
+        case "m:nary":
+            base = "<mo>" + escapeHtml(getTextByPathList(node, ["m:naryPr", "m:chr", "attrs", "m:val"]) || "∑") + "</mo>";
+            sub = renderMathChild(node, "m:sub");
+            sup = renderMathChild(node, "m:sup");
+            if (sub && sup) { base = "<munderover>" + base + sub + sup + "</munderover>"; }
+            else if (sub) { base = "<munder>" + base + sub + "</munder>"; }
+            else if (sup) { base = "<mover>" + base + sup + "</mover>"; }
+            return "<mrow>" + base + renderMathChild(node, "m:e") + "</mrow>";
+        case "m:limLow":
+            return "<munder>" + renderMathChild(node, "m:e") + renderMathChild(node, "m:lim") + "</munder>";
+        case "m:limUpp":
+            return "<mover>" + renderMathChild(node, "m:e") + renderMathChild(node, "m:lim") + "</mover>";
+        case "m:acc":
+        case "m:groupChr":
+            return "<mover>" + renderMathChild(node, "m:e") + "<mo>" + escapeHtml(getMathPropertyChar(node, name, "ˆ")) + "</mo></mover>";
+        case "m:bar":
+            base = renderMathChild(node, "m:e");
+            var bar = "<mo>¯</mo>";
+            return getTextByPathList(node, ["m:barPr", "m:pos", "attrs", "m:val"]) === "bot" ? "<munder>" + base + bar + "</munder>" : "<mover>" + base + bar + "</mover>";
+        case "m:func":
+            return "<mrow>" + renderMathChild(node, "m:fName") + renderMathChild(node, "m:e") + "</mrow>";
+        case "m:m":
+        case "m:eqArr":
+            return renderMathTable(node);
+        case "m:box":
+        case "m:borderBox":
+            return "<menclose notation='box'>" + renderMathChild(node, "m:e") + "</menclose>";
+        case "m:phant":
+            return "<mphantom>" + renderMathChild(node, "m:e") + "</mphantom>";
+        default:
+            return name.indexOf("Pr") !== -1 ? "" : "<mrow>" + renderMathChildren(node) + "</mrow>";
+    }
+}
+
+/** Returns a named Office Math child as a MathML row. */
+function renderMathChild(node, name) {
+    if (node[name] === undefined) {
+        return "";
+    }
+    var values = node[name].constructor === Array ? node[name] : [node[name]];
+    var result = "";
+    for (var i = 0; i < values.length; i++) {
+        result += renderMathChildren(values[i]);
+    }
+    return "<mrow>" + result + "</mrow>";
+}
+
+/** Extracts an accent or group-character glyph from its Office Math properties. */
+function getMathPropertyChar(node, name, fallback) {
+    var propertyName = name === "m:acc" ? "m:accPr" : "m:groupChrPr";
+    return getTextByPathList(node, [propertyName, "m:chr", "attrs", "m:val"]) || fallback;
+}
+
+/** Renders Office Math matrices and equation arrays as a MathML table. */
+function renderMathTable(node) {
+    var rows = node["m:mr"] || node["m:e"] || [];
+    rows = rows.constructor === Array ? rows : [rows];
+    var result = "<mtable>";
+    for (var i = 0; i < rows.length; i++) {
+        var cells = rows[i]["m:e"] || [rows[i]];
+        cells = cells.constructor === Array ? cells : [cells];
+        result += "<mtr>";
+        for (var j = 0; j < cells.length; j++) {
+            result += "<mtd>" + renderMathChildren(cells[j]) + "</mtd>";
+        }
+        result += "</mtr>";
+    }
+    return result + "</mtable>";
 }
 
 function genBuChar(node) {
