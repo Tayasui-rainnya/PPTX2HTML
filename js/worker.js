@@ -955,8 +955,8 @@ function renderMathChildren(node) {
 }
 
 /**
- * Renders one Office Math element, preserving script and limit placement where
- * OOXML supplies it. Property nodes are omitted because they only describe layout.
+ * Renders one Office Math element, preserving script, limit, and group-character
+ * placement where OOXML supplies it. Property nodes only describe layout and are omitted.
  */
 function renderMathNode(name, node) {
     var base;
@@ -1008,10 +1008,11 @@ function renderMathNode(name, node) {
             return "<mover>" + renderMathChild(node, "m:e") + renderMathChild(node, "m:lim") + "</mover>";
         case "m:acc":
             return "<mover>" + renderMathChild(node, "m:e") + "<mo>" + escapeHtml(getMathPropertyChar(node, name, "ˆ")) + "</mo></mover>";
-        case "m:groupChr":
+        case "m:groupChr": {
             base = renderMathChild(node, "m:e");
             var groupCharacter = "<mo>" + escapeHtml(getMathPropertyChar(node, name, "⏟")) + "</mo>";
             return getTextByPathList(node, ["m:groupChrPr", "m:pos", "attrs", "m:val"]) === "top" ? "<mover>" + base + groupCharacter + "</mover>" : "<munder>" + base + groupCharacter + "</munder>";
+        }
         case "m:bar":
             base = renderMathChild(node, "m:e");
             var bar = "<mo>¯</mo>";
