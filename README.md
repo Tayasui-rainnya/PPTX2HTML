@@ -20,6 +20,7 @@ Support Objects
   * Color
   * Location
   * hyperlink
+  * Office Math 公式（分式、上下标、根式、求和、矩阵等；导出为原生 MathML）
 * Picture
   * Type: jpg/jpeg, png, gif
   * Location
