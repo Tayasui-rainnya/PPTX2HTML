@@ -35,6 +35,7 @@ $(document).ready(function() {
 								break;
 							case "slide":
 								$result.append(msg.data);
+								typesetMath($result[0]);
 								break;
 							case "processMsgQueue":
 								processMsgQueue(msg.data);
@@ -100,7 +101,7 @@ $(document).ready(function() {
 			$.get("css/pptx2html.css", function (data) {
 				cssText = data;
 			}).done(function () {
-				var headHtml = "<style>" + cssText + "</style>";
+				var headHtml = "<style>" + cssText + "</style>" + getMathRendererHtml();
 				var bodyHtml = $result.html();
 				var html = "<!DOCTYPE html><html><head>" + headHtml + "</head><body>" + bodyHtml + "</body></html>";
 				var blob = new Blob([html], {type: "text/html;charset=utf-8"});
@@ -137,7 +138,7 @@ Reveal.initialize({\
 	]\
 });\
 </script>";
-				var headHtml = "<style>" + cssText + "</style>";
+				var headHtml = "<style>" + cssText + "</style>" + getMathRendererHtml();
 				var bodyHtml = "<div id='slides' class='slides'>" + $result.html() + "</div>";
 				var html = revealPrefix + headHtml + bodyHtml;
 				var blob = new Blob([html], {type: "text/html;charset=utf-8"});
@@ -161,6 +162,26 @@ Reveal.initialize({\
 	}
 	
 });
+
+/**
+ * Typesets generated MathML with MathJax when it has loaded, while leaving native
+ * MathML untouched as the fallback for offline exports and supported browsers.
+ */
+function typesetMath(container) {
+	if (window.MathJax && window.MathJax.typesetPromise) {
+		window.MathJax.typesetPromise([container]).catch(function(error) {
+			console.warn("MathJax failed to typeset Office Math:", error);
+		});
+	}
+}
+
+/**
+ * Returns the MathJax loader included in exported HTML so Office MathML receives
+ * the same cross-browser rendering fallback as the interactive preview.
+ */
+function getMathRendererHtml() {
+	return "<script defer src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js'></script>";
+}
 
 function processMsgQueue(queue) {
 	for (var i=0; i<queue.length; i++) {
